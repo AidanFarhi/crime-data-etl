@@ -26,7 +26,7 @@ def get_df_from_s3(client, bucket_name, extract_date):
 			crime_set = crime_obj[key]
 			for k, v in crime_set.items():
 				vals_to_put_in_df.append({
-					'ZIP_CODE': zip_code, 'CRIME_TYPE': k.upper(), 'RATE': float(v), 'AS_OF_DATE': str(date.today())
+					'ZIP_CODE': zip_code, 'CRIME_TYPE': k.upper(), 'RATE': float(v), 'SNAPSHOT_DATE': str(date.today())
 				})
 		result = pd.concat([result, pd.DataFrame(vals_to_put_in_df)])
 	return result
@@ -53,6 +53,16 @@ def main(event, context):
 	# Get data from S3
 	crime_rate_df = get_df_from_s3(client, bucket_name, extract_date)
 
+	# Get DE location data from Snowflake
+	location_df = pd.read_sql("SELECT location_id, zip_code FROM dim_location WHERE state = 'DE'", conn)
+
+	# Add location_id to crime_rate data
+	crime_rate_merged_df = crime_rate_df.merge(location_df, on='ZIP_CODE', how='inner')
+	
+	# Filter
+	crime_rate_keep_cols = ['LOCATION_ID', 'CRIME_TYPE', 'RATE', 'SNAPSHOT_DATE']
+	crime_rate_merged_df = crime_rate_merged_df[crime_rate_keep_cols]
+
 	# Load to Snowflake
-	write_pandas(conn, crime_rate_df, 'DIM_CRIME_RATE')
+	write_pandas(conn, crime_rate_merged_df, 'DIM_CRIME_RATE')
 	return {'statusCode': 200}
